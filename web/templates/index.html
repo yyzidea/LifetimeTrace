@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script src="static/vue@3.1.5/vue.global.prod.js"></script>
+    <script src="static/echarts@5.1.2/echarts.min.js"></script>
+    <script src="static/axios@0.21.1/axios.min.js"></script>
+    <title>Title</title>
+</head>
+<body>
+    <div id="lifetime-trace" style="width: 600px;height:200px;"></div>
+    <div id="intensity-trace" style="width: 600px;height:200px;"></div>
+{#    <script src="static/js/chart.js"></script>#}
+    <script src="api?script=chart&ver={{ ver }}"></script>
+    <div id="measurement">
+        <button @click="generate">Counter:{{ '{{' }} counter {{ '}}' }}</button>
+    </div>
+</body>
+{#<script src="static/js/app.js"></script>#}
+<script src="api?script=app&ver={{ ver }}"></script>
+</html>
