@@ -9,7 +9,7 @@ def __plot_lifetime_trace_sub(t, lifetime, intensity, plot_format_func):
     plt.clf()
 
     plt.subplot(2, 5, (1, 4))
-    plt.plot(t, lifetime)
+    plt.plot(t, lifetime*1e-3)
     plt.ylabel('Lifetime (ns)')
     ylim1 = plt.gca().get_ylim()
 
@@ -43,10 +43,10 @@ def plot_lifetime_trace(meas, plot_format_func=None):
 
     while plt.fignum_exists(fig_num):
         lifetime, intensity = meas.getData()
-        t = np.arange(0, lifetime.size)*meas.int_time
+        t = np.arange(0, lifetime.size)*meas.int_time*1e-12
         plt.figure(fig_num)
 
-        __plot_lifetime_trace_sub(t, lifetime, intensity/meas.int_time, plot_format_func)
+        __plot_lifetime_trace_sub(t, lifetime, intensity/meas.int_time/1e-12, plot_format_func)
         if not meas.isRunning():
             break
 
@@ -65,7 +65,7 @@ def __plot_normal_data(t, data, plot_format_func):
 
 
 def plot_data(meas, plot_format_func=None):
-    if meas.__class__.__name__ is 'LifetimeTrace':
+    if meas.__class__.__name__ is 'LifetimeTrace' or meas.__class__.__name__ is 'LifetimeTraceLegacy':
         plot_lifetime_trace(meas, plot_format_func)
     else:
         plt.figure()
@@ -94,10 +94,10 @@ def plot_data(meas, plot_format_func=None):
 
 
 def save_data(fname, meas):
-    if meas.__class__.__name__ is 'LifetimeTrace':
+    if meas.__class__.__name__ is 'LifetimeTrace' or meas.__class__.__name__ is 'LifetimeTraceLegacy':
         lifetime, intensity = meas.getData()
-        t = np.arange(0, lifetime.size)*meas.int_time
-        np.savetxt(fname, np.vstack((t, lifetime, intensity/meas.int_time)).transpose(), delimiter=',')
+        t = np.arange(0, lifetime.size)*meas.int_time*1e-12
+        np.savetxt(fname, np.vstack((t, lifetime, intensity/meas.int_time/1e-12)).transpose(), delimiter=',')
     else:
         temp = meas.getIndex()
         binwidth = (temp[1]-temp[0])*1e-12
