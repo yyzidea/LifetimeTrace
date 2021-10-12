@@ -37,6 +37,8 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
         self.max_delay = max_delay
         self.min_delay = min_delay
 
+        self.inspect_var = 0
+
         # The method register_channel(channel) activates
         # that data from the respective channels is transferred
         # from the Time Tagger to the PC.
@@ -90,6 +92,10 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
         # The lock is already acquired within the backend.
         pass
 
+    # def set(self, **kwargs):
+    #     for key, value in kwargs.items():
+    #         self.__setattr__(key, value)
+
     @staticmethod
     @numba.jit(nopython=True, nogil=True)
     def fast_histogram_process(
@@ -129,7 +135,6 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
 
                 if tag['time'] - bin_start_timestamp > int_time:
                     delay = np.arange(0, n_bins)*binwidth-offset
-                    delay = delay-offset
                     hist_data[delay < min_delay] = 0
                     hist_data[delay > max_delay] = 0
 
@@ -151,7 +156,6 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
             elif tag['channel'] == click_channel and last_start_timestamp != 0:
                 if tag['time'] - bin_start_timestamp > int_time:
                     delay = np.arange(0, n_bins)*binwidth-offset
-                    delay = delay-offset
                     hist_data[delay < min_delay] = 0
                     hist_data[delay > max_delay] = 0
 
@@ -198,7 +202,7 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
         end_time
             End timestamp of the of the current data block.
         """
-
+        self.inspect_var = self.int_time
         self.__last_start_timestamp, self.__bin_start_timestamp, self.__data_end_idx, self.__intensity, self.__lifetime =\
             LifetimeTrace.fast_histogram_process(
                 incoming_tags,
@@ -242,7 +246,7 @@ class LifetimeTraceWithFileWriter(TimeTagger.SynchronizedMeasurements):
         return self.lifetime_trace.getData()
 
     def getIndex(self):
-        self.lifetime_trace.getIndex()
+        return self.lifetime_trace.getIndex()
 
     def startForSecond(self, capture_duration, clear=True):
         self.startFor(int(capture_duration*1e12), clear)
@@ -263,8 +267,49 @@ class LifetimeTraceWithFileWriter(TimeTagger.SynchronizedMeasurements):
         return self.file_writer.getTotalSize()
 
 
+class LifetimeTraceFromFile(LifetimeTrace):
+    def __init__(self, click_channel, start_channel, binwidth, n_bins, int_time,
+                 offset=88100, min_delay=0, max_delay=200e3):
+
+        self.virtual_tagger = TimeTagger.createTimeTaggerVirtual()
+        LifetimeTrace.__init__(self, self.virtual_tagger, click_channel, start_channel, binwidth,
+                               n_bins, int_time, offset=offset, min_delay=min_delay, max_delay=max_delay)
+
+    def replay(self, file, begin=0, duration=-1, queue=False):
+        self.virtual_tagger.replay(file=file, begin=begin, duration=duration, queue=queue)
+
+    def replayAndWait(self, file, begin=0, duration=-1, queue=False, timeout=-1):
+        ID = self.virtual_tagger.replay(file=file, begin=begin, duration=duration, queue=queue)
+        if self.waitForCompletion(ID=ID, timeout=timeout):
+            self.stop()
+
+    def stopReplay(self):
+        self.virtual_tagger.stop()
+
+    def waitForCompletion(self, ID=0, timeout=-1):
+        return self.virtual_tagger.waitForCompletion(ID=ID, timeout=timeout)
+
+    def setReplaySpeed(self, speed):
+        self.virtual_tagger.setReplaySpeed(speed)
+
+    def getReplaySpeed(self):
+        return self.virtual_tagger.getReplaySpeed()
+
+    def getConfiguration(self):
+        return self.virtual_tagger.getConfiguration()
+
+    # def __setattr__(self, key, value):
+    #     if key == 'virtual_tagger':
+    #         self.__dict__[key] = value
+    #     else:
+    #         self.__dict__[key] = value
+    #         param = {key: value}
+    #         self.set(**param)
+
+
 class LifetimeTraceLegacy:
-    def __init__(self, click_channel, start_channel, binwidth, n_bins, int_time, tagger=None, serial='1910000OZQ', mode='mean', offset=88100, min_delay=0, max_delay=200e3):
+    def __init__(self, click_channel, start_channel, binwidth, n_bins, int_time, tagger=None, serial='1910000OZQ',
+                 mode='mean', offset=88100, min_delay=0, max_delay=200e3):
         # Create a TimeTagger instance to control your hardware
         if tagger is None:
             self.tagger = TimeTagger.createTimeTagger(serial)
