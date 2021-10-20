@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from wave_generator import waveform_generate
 
 # if 'TimeTagger' not in locals():
 #     from python.driver import TimeTagger
@@ -64,7 +65,7 @@ def __plot_normal_data(t, data, plot_format_func):
     plt.pause(0.1)
 
 
-def plot_data(meas, plot_format_func=None):
+def plot_data(meas, plot_length=None, plot_format_func=None):
     if 'LifetimeTrace' in meas.__class__.__name__:
         plot_lifetime_trace(meas, plot_format_func)
     else:
@@ -77,6 +78,11 @@ def plot_data(meas, plot_format_func=None):
         while plt.fignum_exists(fig_num):
             data = np.transpose(meas.getData())
             t = np.arange(0, data.shape[0])*binwidth
+
+            if plot_length is not None and data.size > plot_length:
+                data = data[-1-plot_length:]
+                t = t[-1-plot_length:]
+
             plt.figure(fig_num)
             if meas.__class__.__name__ is 'Counter':
                 __plot_normal_data(t, data/binwidth, plot_format_func)
@@ -118,3 +124,67 @@ def plot_file(fname, fig_num=None, meas_type='LifetimeTrace', plot_format_func=N
     else:
         __plot_normal_data(data[:,0], data[:,1:], plot_format_func)
 
+
+def plot_lifetime_trace_with_voltage(meas, V_l, V_h, scan_rate, mode, plot_format_func=None):
+    def plot_func(t, lifetime, intensity, plot_format_func):
+        plt.clf()
+
+        amplitude = abs(V_h-V_l)
+        offset = (V_h+V_l)/2
+        frequency = scan_rate/amplitude/2
+        phase = 0
+
+        if mode == 'sweep':
+            if V_l <= 0 <= V_h:
+                phase = V_l/amplitude*180
+        elif mode == 'binary':
+            if V_l < V_h:
+                phase = 180
+            else:
+                phase = 0
+
+        mode_waveform_map = {'sweep': 'triangle', 'binary': 'square'}
+
+        plt.subplot(3, 5, (1, 4))
+        plt.plot(t, waveform_generate(mode_waveform_map[mode], t, amplitude, frequency, offset, phase))
+        plt.ylabel('Lifetime (ns)')
+
+        plt.subplot(3, 5, (6, 9))
+        plt.plot(t, lifetime)
+        plt.ylabel('Lifetime (ns)')
+        ylim1 = plt.gca().get_ylim()
+
+        plt.subplot(3, 5, 10)
+        plt.hist(lifetime, 100, orientation='horizontal')
+        plt.gca().set_xticks([])
+        plt.gca().set_ylim(ylim1)
+        plt.gca().set_yticks([])
+
+        plt.subplot(3, 5, (11, 14))
+        plt.plot(t, intensity)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Count (pcs)')
+        ylim2 = plt.gca().get_ylim()
+
+        plt.subplot(3, 5, 15)
+        plt.hist(intensity, 100, orientation='horizontal')
+        plt.gca().set_xticks([])
+        plt.gca().set_ylim(ylim2)
+        plt.gca().set_yticks([])
+
+        if plot_format_func is not None:
+            plot_format_func(plt)
+
+        plt.pause(0.1)
+
+    plt.figure()
+    fig_num = plt.gcf().number
+
+    while plt.fignum_exists(fig_num):
+        lifetime, intensity = meas.getData()
+        t = np.arange(0, lifetime.size)*meas.int_time*1e-12
+        plt.figure(fig_num)
+
+        plot_func(t, lifetime, intensity/meas.int_time/1e-12, plot_format_func)
+        if not meas.isRunning():
+            break
