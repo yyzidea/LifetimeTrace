@@ -91,7 +91,7 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
             plt.figure(fig_num)
             if meas.__class__.__name__ is 'Counter':
                 __plot_normal_data(t, data/binwidth, plot_format_func)
-            elif meas.__class__.__name__ is 'Histogram':
+            elif meas.__class__.__name__ is 'Histogram' or meas.__class__.__name__ is 'GatedHistogramFromFile':
                 def f(plt):
                     plt.yscale('log')
                     plt.xlabel('Delay (ns)')

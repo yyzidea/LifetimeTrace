@@ -12,11 +12,6 @@ from time_tagger_utility import *
 
 
 class LifetimeTrace(TimeTagger.CustomMeasurement):
-    """
-    Example for a single start - multiple stop measurement.
-        The class shows how to access the raw time-tag stream.
-    """
-
     def __init__(self, tagger, click_channel, start_channel, binwidth, n_bins, int_time,
                  offset=88100, min_delay=0, max_delay=200e3):
         TimeTagger.CustomMeasurement.__init__(self, tagger)
