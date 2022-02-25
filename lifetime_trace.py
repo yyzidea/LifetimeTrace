@@ -276,6 +276,7 @@ class LifetimeTraceFromFile(LifetimeTrace):
                                n_bins, int_time, offset=offset, min_delay=min_delay, max_delay=max_delay)
 
     def replay(self, file, begin=0, duration=-1, queue=False):
+        self.clear()
         self.virtual_tagger.replay(file=file, begin=begin, duration=duration, queue=queue)
 
     def replayAndWait(self, file, begin=0, duration=-1, queue=False, timeout=-1):
@@ -298,11 +299,14 @@ class LifetimeTraceFromFile(LifetimeTrace):
     def getConfiguration(self):
         return self.virtual_tagger.getConfiguration()
 
+    def isRunning(self):
+        return not self.waitForCompletion(timeout=0)
+
     # def __setattr__(self, key, value):
     #     if key == 'virtual_tagger':
     #         self.__dict__[key] = value
     #     else:
-    #         self.__dict__[key] = value
+    #         self.__dict__.name[key] = value
     #         param = {key: value}
     #         self.set(**param)
 
