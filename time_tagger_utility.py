@@ -42,14 +42,18 @@ def plot_lifetime_trace(meas, plot_format_func=None):
     plt.figure()
     fig_num = plt.gcf().number
 
+    flag = 0
     while plt.fignum_exists(fig_num):
         lifetime, intensity = meas.getData()
         t = np.arange(0, lifetime.size)*meas.int_time*1e-12
         plt.figure(fig_num)
 
         __plot_lifetime_trace_sub(t, lifetime, intensity/meas.int_time/1e-12, plot_format_func)
-        if not meas.isRunning():
+        if flag:
             break
+
+        if not meas.isRunning():
+            flag = 1
 
 
 def __plot_normal_data(t, data, plot_format_func):
@@ -75,6 +79,7 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
         temp = meas.getIndex()
         binwidth = (temp[1]-temp[0])*1e-12
 
+        flag = 0
         while plt.fignum_exists(fig_num):
             data = np.transpose(meas.getData())
             t = np.arange(0, data.shape[0])*binwidth
@@ -100,8 +105,11 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
             else:
                 __plot_normal_data(t, data, plot_format_func)
 
-            if not meas.isRunning():
+            if flag:
                 break
+
+            if not meas.isRunning():
+                flag = 1
 
 
 def save_data(fname, meas):
@@ -321,12 +329,16 @@ def plot_lifetime_trace_with_voltage(meas, V_l, V_h, scan_rate, mode, plot_forma
     plt.figure()
     fig_num = plt.gcf().number
 
+    flag = 0
     while plt.fignum_exists(fig_num):
         lifetime, intensity = meas.getData()
         t = np.arange(0, lifetime.size)*meas.int_time*1e-12
         plt.figure(fig_num)
 
         plot_func(t, lifetime, intensity/meas.int_time/1e-12, plot_format_func)
-        if not meas.isRunning():
+        if flag:
             break
+
+        if not meas.isRunning():
+            flag = 1
 
