@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from wave_generator import waveform_generate
+from device.wave_generator import waveform_generate
 
 # if 'TimeTagger' not in locals():
 #     from python.driver import TimeTagger
@@ -89,9 +89,9 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
                 t = t[-1-plot_length:]
 
             plt.figure(fig_num)
-            if meas.__class__.__name__ is 'Counter':
+            if meas.__class__.__name__ == 'Counter':
                 __plot_normal_data(t, data/binwidth, plot_format_func)
-            elif meas.__class__.__name__ is 'Histogram' or meas.__class__.__name__ is 'GatedHistogramFromFile':
+            elif meas.__class__.__name__ == 'Histogram' or meas.__class__.__name__ == 'GatedHistogramFromFile':
                 def f(plt):
                     plt.yscale('log')
                     plt.xlabel('Delay (ns)')
@@ -122,7 +122,7 @@ def save_data(fname, meas):
         binwidth = (temp[1]-temp[0])*1e-12
         data = np.transpose(meas.getData())
         t = np.arange(0, data.shape[0])*binwidth
-        if meas.__class__.__name__ is 'Counter':
+        if meas.__class__.__name__ == 'Counter':
             np.savetxt(fname, np.vstack((t, data/binwidth)).transpose(), delimiter=',')
         else:
             np.savetxt(fname, np.vstack((t, data)).transpose(), delimiter=',')
