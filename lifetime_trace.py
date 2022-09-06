@@ -140,7 +140,7 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
                         lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
 
                     hist_data[:] = 0
-                    bin_start_timestamp = tag['time']
+                    bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
 
                     # Expand the data array length
                     data_end_idx += 1
@@ -161,7 +161,7 @@ class LifetimeTrace(TimeTagger.CustomMeasurement):
                         lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
 
                     hist_data[:] = 0
-                    bin_start_timestamp = tag['time']
+                    bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
 
                     # Expand the data array length
                     data_end_idx += 1
