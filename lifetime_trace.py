@@ -509,6 +509,289 @@ class LifetimeTraceLegacy:
     #             print('Subprocess (pid:%s) stops!' % self.__pid)
 
 
+class LifetimeTraceGated(TimeTagger.CustomMeasurement):
+    def __init__(self, tagger, click_channel, start_channel, gate_on_channel, gate_off_channel, binwidth, n_bins, int_time,
+                 offset=88100, min_delay=0, max_delay=200e3):
+        TimeTagger.CustomMeasurement.__init__(self, tagger)
+        self.click_channel = click_channel
+        self.start_channel = start_channel
+        self.gate_on_channel = gate_on_channel
+        self.gate_off_chanel = gate_off_channel
+        self.binwidth = binwidth
+        self.n_bins = n_bins
+        self.int_time = int_time
+
+        self.__lifetime = np.zeros(200)
+        self.__intensity = np.zeros(200)
+        self.__data_end_idx = 0
+        self.__last_start_timestamp = 0
+        self.__bin_start_timestamp = 0
+        self.__hist_data = np.zeros((self.n_bins,), dtype=np.uint64)
+        self.__hists = []
+        self.__gate_status = 0
+
+        self.offset = offset
+        self.max_delay = max_delay
+        self.min_delay = min_delay
+
+        self.inspect_var = 0
+
+        # The method register_channel(channel) activates
+        # that data from the respective channels is transferred
+        # from the Time Tagger to the PC.
+        self.register_channel(channel=click_channel)
+        self.register_channel(channel=start_channel)
+
+        self.clear_impl()
+
+        # At the end of a CustomMeasurement construction,
+        # we must indicate that we have finished.
+        self.finalize_init()
+
+    def __del__(self):
+        # The measurement must be stopped before deconstruction to avoid
+        # concurrent process() calls.
+        self.stop()
+
+    def startForSecond(self, capture_duration, clear=True):
+        self.startFor(int(capture_duration*1e12), clear)
+
+    def getData(self):
+        # Acquire a lock this instance to guarantee that process() is not running in parallel
+        # This ensures to return a consistent data.
+        self._lock()
+        lifetime = self.__lifetime[:self.__data_end_idx].copy()*1e-3
+        intensity = self.__intensity[:self.__data_end_idx].copy()
+        hists = self.__hists.copy()
+        # We have gathered the data, unlock, so measuring can continue.
+        self._unlock()
+        return lifetime, intensity, hists
+
+    def getIndex(self):
+        # This method does not depend on the internal state, so there is no
+        # need for a lock.
+        arr = np.arange(0, self.__data_end_idx)*self.int_time
+        return arr
+
+    def clear_impl(self):
+        # The lock is already acquired within the backend.
+        self.__lifetime = np.zeros(200)
+        self.__intensity = np.zeros(200)
+        self.__data_end_idx = 0
+        self.__last_start_timestamp = 0
+        self.__bin_start_timestamp = 0
+        self.__hist_data = np.zeros((self.n_bins,), dtype=np.uint64)
+        self.__hists = []
+        self.__gate_status = 0
+
+    def on_start(self):
+        # The lock is already acquired within the backend.
+        pass
+
+    def on_stop(self):
+        # The lock is already acquired within the backend.
+        pass
+
+    # def set(self, **kwargs):
+    #     for key, value in kwargs.items():
+    #         self.__setattr__(key, value)
+
+    @staticmethod
+    @numba.jit(nopython=True, nogil=True)
+    def fast_histogram_process(
+            tags,
+            hist_data,
+            hists,
+            click_channel,
+            start_channel,
+            gate_on_channel,
+            gate_off_chanel,
+            binwidth,
+            last_start_timestamp,
+            bin_start_timestamp,
+            int_time,
+            lifetime,
+            intensity,
+            data_end_idx,
+            gate_status,
+            offset,
+            min_delay,
+            max_delay,
+            n_bins):
+        """
+        A precompiled version of the histogram algorithm for better performance
+        nopython=True: Only a subset of the python syntax is supported.
+                       Avoid everything but primitives and numpy arrays.
+                       All slow operation will yield an exception
+        nogil=True:    This method will release the global interpreter lock. So
+                       this method can run in parallel with other python code
+        """
+
+        for tag in tags:
+            # tag.type can be: 0 - TimeTag, 1- Error, 2 - OverflowBegin, 3 -
+            # OverflowEnd, 4 - MissedEvents
+            if tag['type'] != 0:
+                # tag is not a TimeTag, so we are in an error state, e.g. overflow
+                last_start_timestamp = 0
+
+            elif tag['channel'] == start_channel:
+                last_start_timestamp = tag['time']
+
+                if tag['time'] - bin_start_timestamp > int_time:
+                    delay = np.arange(0, n_bins)*binwidth-offset
+                    hist_data[delay < min_delay] = 0
+                    hist_data[delay > max_delay] = 0
+
+                    intensity[data_end_idx] = np.sum(hist_data)
+                    if intensity[data_end_idx] == 0:
+                        lifetime[data_end_idx] = -1
+                    else:
+                        lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
+
+                    if gate_status:
+                        hists[:, -1] = hists[:, -1]+hist_data
+
+                    hist_data[:] = 0
+                    bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
+
+                    # Expand the data array length
+                    data_end_idx += 1
+                    if data_end_idx == lifetime.size:
+                        intensity = np.hstack((intensity, np.zeros(200)))
+                        lifetime = np.hstack((lifetime, np.zeros(200)))
+
+            elif tag['channel'] == click_channel and last_start_timestamp != 0:
+                if tag['time'] - bin_start_timestamp > int_time:
+                    delay = np.arange(0, n_bins)*binwidth-offset
+                    hist_data[delay < min_delay] = 0
+                    hist_data[delay > max_delay] = 0
+
+                    intensity[data_end_idx] = np.sum(hist_data)
+                    if intensity[data_end_idx] == 0:
+                        lifetime[data_end_idx] = -1
+                    else:
+                        lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
+
+                    if gate_status:
+                        hists[:, -1] = hists[:, -1]+hist_data
+
+                    hist_data[:] = 0
+                    bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
+
+                    # Expand the data array length
+                    data_end_idx += 1
+                    if data_end_idx == lifetime.size:
+                        intensity = np.hstack((intensity, np.zeros(200)))
+                        lifetime = np.hstack((lifetime, np.zeros(200)))
+
+                # valid event
+                index = (tag['time'] - last_start_timestamp) // binwidth
+                if index < hist_data.shape[0]:
+                    hist_data[index] += 1
+
+            elif tag['channel'] == gate_on_channel:
+                gate_status = True
+                hists = np.hstack((hists, np.atleast_2d(-hist_data).transpose))
+
+            elif tag['channel'] == gate_off_chanel:
+                gate_status = False
+                hists[:, -1] = hists[:, -1]+hist_data
+
+        return last_start_timestamp, bin_start_timestamp, data_end_idx, intensity, lifetime, gate_status
+
+    def process(self, incoming_tags, begin_time, end_time):
+        """
+        Main processing method for the incoming raw time-tags.
+
+        The lock is already acquired within the backend.
+        self.data is provided as reference, so it must not be accessed
+        anywhere else without locking the mutex.
+
+        Parameters
+        ----------
+        incoming_tags
+            The incoming raw time tag stream provided as a read-only reference.
+            The storage will be deallocated after this call, so you must not store a reference to
+            this object. Make a copy instead.
+            Please note that the time tag stream of all channels is passed to the process method,
+            not only the onces from register_channel(...).
+        begin_time
+            Begin timestamp of the of the current data block.
+        end_time
+            End timestamp of the of the current data block.
+        """
+        self.inspect_var = self.int_time
+        self.__last_start_timestamp, self.__bin_start_timestamp, self.__data_end_idx, self.__intensity, self.__lifetime =\
+            LifetimeTrace.fast_histogram_process(
+                incoming_tags,
+                self.__hist_data,
+                self.__hists,
+                self.click_channel,
+                self.start_channel,
+                self.binwidth,
+                self.__last_start_timestamp,
+                self.__bin_start_timestamp,
+                self.int_time,
+                self.__lifetime,
+                self.__intensity,
+                self.__hists,
+                self.__data_end_idx,
+                self.__gate_status,
+                self.offset,
+                self.min_delay,
+                self.max_delay,
+                self.n_bins)
+
+
+class LifetimeTraceGatedWithFileWriter(TimeTagger.SynchronizedMeasurements):
+    def __init__(self, tagger, click_channel, start_channel, gate_on_channel, gate_off_channel,
+                 binwidth, n_bins, int_time, filename, offset=88100, min_delay=0, max_delay=200e3):
+        TimeTagger.SynchronizedMeasurements.__init__(self, tagger)
+
+        self.click_channel = click_channel
+        self.start_channel = start_channel
+        self.binwidth = binwidth
+        self.n_bins = n_bins
+        self.int_time = int_time
+        self.offset = offset
+        self.max_delay = max_delay
+        self.min_delay = min_delay
+        self.filename = filename
+        self.gate_on_channel = gate_on_channel
+        self.gate_off_channel = gate_off_channel
+
+        self.lifetime_trace_gated = LifetimeTraceGated(self.getTagger(), self.click_channel, self.start_channel,
+                                                       self.gate_on_channel, self.gate_off_channel, self.binwidth,
+                                                       self.n_bins, self.int_time, self.offset, self.min_delay,
+                                                       self.max_delay)
+
+        self.file_writer = TimeTagger.FileWriter(self.getTagger(), self.filename,
+                                                 [self.click_channel, self.start_channel])
+
+    def getData(self):
+        return self.lifetime_trace_gated.getData()
+
+    def getIndex(self):
+        return self.lifetime_trace_gated.getIndex()
+
+    def startForSecond(self, capture_duration, clear=True):
+        self.startFor(int(capture_duration*1e12), clear)
+
+    def split(self, *args, **kwargs):
+        self.file_writer.split(*args, **kwargs)
+
+    def setMaxFileSize(self, max_file_size):
+        self.file_writer.setMaxFileSize(max_file_size)
+
+    def getMaxFileSize(self):
+        return self.file_writer.getMaxFileSize()
+
+    def getTotalEvents(self):
+        return self.file_writer.getTotalEvents()
+
+    def getTotalSize(self):
+        return self.file_writer.getTotalSize()
+
 if __name__ == '__main__':
     tagger = TimeTagger.createTimeTagger('1910000OZQ')
     tagger.setTestSignal(1, True)
@@ -516,8 +799,8 @@ if __name__ == '__main__':
 
     # meas = LifetimeTraceLegacy(2, 1, 10, 100000, int_time=0.100, tagger=tagger)
     # meas = LifetimeTrace(tagger, 2, 1, 100, 10000, int(0.1*1e12), offset=0, max_delay=int(200e3))
-    filename = r'E:\yyz\Quantum Dot Device\Lifetime trace\20210915\test.ttbin'
-    meas = LifetimeTraceWithFileWriter(tagger, 2, 1, 100, 10000, int(0.1*1e12), filename, offset=0, max_delay=int(200e3))
+    fname = r'E:\yyz\Quantum Dot Device\Lifetime trace\20210915\test.ttbin'
+    meas = LifetimeTraceWithFileWriter(tagger, 2, 1, 100, 10000, int(0.1*1e12), fname, offset=0, max_delay=int(200e3))
 
     meas.startFor(int(5e12))
     plot_lifetime_trace(meas)
