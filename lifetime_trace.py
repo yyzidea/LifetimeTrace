@@ -6,8 +6,7 @@ from scipy.optimize import curve_fit
 from threading import Thread, Lock
 from warnings import warn, filterwarnings
 
-# import TimeTagger
-from python.driver import TimeTagger
+import TimeTagger
 from time_tagger_utility import *
 
 
@@ -516,7 +515,7 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         self.click_channel = click_channel
         self.start_channel = start_channel
         self.gate_on_channel = gate_on_channel
-        self.gate_off_chanel = gate_off_channel
+        self.gate_off_channel = gate_off_channel
         self.binwidth = binwidth
         self.n_bins = n_bins
         self.int_time = int_time
@@ -541,6 +540,8 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         # from the Time Tagger to the PC.
         self.register_channel(channel=click_channel)
         self.register_channel(channel=start_channel)
+        self.register_channel(channel=gate_on_channel)
+        self.register_channel(channel=gate_off_channel)
 
         self.clear_impl()
 
@@ -578,11 +579,11 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         self.__lifetime = np.zeros(200)
         self.__intensity = np.zeros(200)
         self.__data_end_idx = 0
+        self.__gate_status = 0
         self.__last_start_timestamp = 0
         self.__bin_start_timestamp = 0
         self.__hist_data = np.zeros((self.n_bins,), dtype=np.uint64)
-        self.__hists = []
-        self.__gate_status = 0
+        self.__hists = np.zeros((self.n_bins, 1), dtype=np.int64)
 
     def on_start(self):
         # The lock is already acquired within the backend.
@@ -598,14 +599,14 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
 
     @staticmethod
     @numba.jit(nopython=True, nogil=True)
-    def fast_histogram_process(
+    def fast_gated_histogram_process(
             tags,
             hist_data,
             hists,
             click_channel,
             start_channel,
             gate_on_channel,
-            gate_off_chanel,
+            gate_off_channel,
             binwidth,
             last_start_timestamp,
             bin_start_timestamp,
@@ -638,6 +639,9 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
                 last_start_timestamp = tag['time']
 
                 if tag['time'] - bin_start_timestamp > int_time:
+                    if gate_status:
+                        hists[:, -1] = hists[:, -1]+hist_data
+
                     delay = np.arange(0, n_bins)*binwidth-offset
                     hist_data[delay < min_delay] = 0
                     hist_data[delay > max_delay] = 0
@@ -647,9 +651,6 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
                         lifetime[data_end_idx] = -1
                     else:
                         lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
-
-                    if gate_status:
-                        hists[:, -1] = hists[:, -1]+hist_data
 
                     hist_data[:] = 0
                     bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
@@ -662,6 +663,9 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
 
             elif tag['channel'] == click_channel and last_start_timestamp != 0:
                 if tag['time'] - bin_start_timestamp > int_time:
+                    if gate_status:
+                        hists[:, -1] = hists[:, -1]+hist_data
+
                     delay = np.arange(0, n_bins)*binwidth-offset
                     hist_data[delay < min_delay] = 0
                     hist_data[delay > max_delay] = 0
@@ -671,9 +675,6 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
                         lifetime[data_end_idx] = -1
                     else:
                         lifetime[data_end_idx] = np.sum(delay*hist_data)/intensity[data_end_idx]
-
-                    if gate_status:
-                        hists[:, -1] = hists[:, -1]+hist_data
 
                     hist_data[:] = 0
                     bin_start_timestamp += int(np.floor((tag['time']-bin_start_timestamp)/int_time))*int_time
@@ -690,14 +691,16 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
                     hist_data[index] += 1
 
             elif tag['channel'] == gate_on_channel:
-                gate_status = True
-                hists = np.hstack((hists, np.atleast_2d(-hist_data).transpose))
+                gate_status = 1
+                hists[:, -1] = -hist_data
 
-            elif tag['channel'] == gate_off_chanel:
-                gate_status = False
+            elif tag['channel'] == gate_off_channel:
+                gate_status = 0
                 hists[:, -1] = hists[:, -1]+hist_data
+                hists = np.hstack((hists, np.zeros((n_bins, 1), dtype=np.int64)))
 
-        return last_start_timestamp, bin_start_timestamp, data_end_idx, intensity, lifetime, gate_status
+        return last_start_timestamp, bin_start_timestamp, data_end_idx, gate_status,\
+               intensity, lifetime, hists
 
     def process(self, incoming_tags, begin_time, end_time):
         """
@@ -721,20 +724,22 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
             End timestamp of the of the current data block.
         """
         self.inspect_var = self.int_time
-        self.__last_start_timestamp, self.__bin_start_timestamp, self.__data_end_idx, self.__intensity, self.__lifetime =\
-            LifetimeTrace.fast_histogram_process(
+        self.__last_start_timestamp, self.__bin_start_timestamp, self.__data_end_idx, self.__gate_status, \
+            self.__intensity, self.__lifetime, self.__hists = \
+            LifetimeTraceGated.fast_gated_histogram_process(
                 incoming_tags,
                 self.__hist_data,
                 self.__hists,
                 self.click_channel,
                 self.start_channel,
+                self.gate_on_channel,
+                self.gate_off_channel,
                 self.binwidth,
                 self.__last_start_timestamp,
                 self.__bin_start_timestamp,
                 self.int_time,
                 self.__lifetime,
                 self.__intensity,
-                self.__hists,
                 self.__data_end_idx,
                 self.__gate_status,
                 self.offset,
@@ -766,7 +771,8 @@ class LifetimeTraceGatedWithFileWriter(TimeTagger.SynchronizedMeasurements):
                                                        self.max_delay)
 
         self.file_writer = TimeTagger.FileWriter(self.getTagger(), self.filename,
-                                                 [self.click_channel, self.start_channel])
+                                                 [self.click_channel, self.start_channel,
+                                                  self.gate_on_channel, self.gate_off_channel])
 
     def getData(self):
         return self.lifetime_trace_gated.getData()
@@ -791,6 +797,19 @@ class LifetimeTraceGatedWithFileWriter(TimeTagger.SynchronizedMeasurements):
 
     def getTotalSize(self):
         return self.file_writer.getTotalSize()
+
+
+def enable_conditional_filter(tagger, click_channel, start_channel, start_frequency=1e6):
+    tagger.setConditionalFilter([click_channel], [start_channel])
+    tagger.setDelayHardware(start_channel, int(1/start_frequency*1e12))
+    tagger.setDelaySoftware(start_channel, -int(1/start_frequency*1e12))
+
+
+def disable_conditional_filter(tagger, start_channel):
+    tagger.clearConditionalFilter()
+    tagger.setDelayHardware(start_channel, 0)
+    tagger.setDelaySoftware(start_channel, 0)
+
 
 if __name__ == '__main__':
     tagger = TimeTagger.createTimeTagger('1910000OZQ')
