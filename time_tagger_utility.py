@@ -103,6 +103,7 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
                 __plot_normal_data((t-offset)*1e9, data, f)
 
             else:
+                t = meas.getIndex()*1e12
                 __plot_normal_data(t, data, plot_format_func)
 
             if flag:
