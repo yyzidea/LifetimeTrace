@@ -568,6 +568,13 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         self._unlock()
         return lifetime, intensity, hists
 
+    def saveData(self, filename_lifetime, filename_hists):
+        lifetime, intensity, hists = self.getData()
+        t = np.arange(0, lifetime.size)*self.int_time*1e-12
+        t_hists = np.atleast_2d(np.arange(0, self.n_bins)).transpose()*self.binwidth
+        np.savetxt(filename_lifetime, np.vstack((t, lifetime, intensity/self.int_time/1e-12)).transpose(), delimiter=',')
+        np.savetxt(filename_hists, np.vstack((t_hists, hists), delimiter=','))
+
     def getIndex(self):
         # This method does not depend on the internal state, so there is no
         # need for a lock.
@@ -776,6 +783,9 @@ class LifetimeTraceGatedWithFileWriter(TimeTagger.SynchronizedMeasurements):
 
     def getData(self):
         return self.lifetime_trace_gated.getData()
+
+    def saveData(self, filename_lifetime, filename_hists):
+        self.lifetime_trace_gated.saveData(self, filename_lifetime, filename_hists)
 
     def getIndex(self):
         return self.lifetime_trace_gated.getIndex()
