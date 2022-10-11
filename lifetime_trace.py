@@ -563,7 +563,7 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         self._lock()
         lifetime = self.__lifetime[:self.__data_end_idx].copy()*1e-3
         intensity = self.__intensity[:self.__data_end_idx].copy()
-        hists = self.__hists.copy()
+        hists = self.__hists[:, :-1].copy()
         # We have gathered the data, unlock, so measuring can continue.
         self._unlock()
         return lifetime, intensity, hists
@@ -573,7 +573,7 @@ class LifetimeTraceGated(TimeTagger.CustomMeasurement):
         t = np.arange(0, lifetime.size)*self.int_time*1e-12
         t_hists = np.atleast_2d(np.arange(0, self.n_bins)).transpose()*self.binwidth
         np.savetxt(filename_lifetime, np.vstack((t, lifetime, intensity/self.int_time/1e-12)).transpose(), delimiter=',')
-        np.savetxt(filename_hists, np.vstack((t_hists, hists), delimiter=','))
+        np.savetxt(filename_hists, np.hstack((t_hists, hists)), delimiter=',')
 
     def getIndex(self):
         # This method does not depend on the internal state, so there is no
