@@ -785,7 +785,7 @@ class LifetimeTraceGatedWithFileWriter(TimeTagger.SynchronizedMeasurements):
         return self.lifetime_trace_gated.getData()
 
     def saveData(self, filename_lifetime, filename_hists):
-        self.lifetime_trace_gated.saveData(self, filename_lifetime, filename_hists)
+        self.lifetime_trace_gated.saveData(filename_lifetime, filename_hists)
 
     def getIndex(self):
         return self.lifetime_trace_gated.getIndex()
