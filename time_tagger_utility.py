@@ -61,7 +61,7 @@ def __plot_normal_data(t, data, plot_format_func):
 
     plt.plot(t, data)
     plt.xlabel('Time (s)')
-    plt.ylabel('Count (pcs)')
+    plt.ylabel('Count (cps)')
 
     if plot_format_func is not None:
         plot_format_func(plt)
@@ -103,7 +103,7 @@ def plot_data(meas, plot_length=None, plot_format_func=None):
                 __plot_normal_data((t-offset)*1e9, data, f)
 
             else:
-                t = meas.getIndex()*1e12
+                t = meas.getIndex()*1e-3
                 __plot_normal_data(t, data, plot_format_func)
 
             if flag:
